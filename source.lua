@@ -16,7 +16,7 @@ local spy = {
     ignored = {},
     currentTableDepth = 0,
     saveCalls = spy_settings.saveCalls or false,
-    saveOnlyLastCall = not spy_settings.saveCalls and spy_settings.saveOnlyLastCall or false,
+    saveOnlyLastCall = spy_settings.saveCalls and false or spy_settings.saveOnlyLastCall or true,
     maxTableDepth = spy_settings.maxTableDepth or 100,
     maxCallsSaved = spy_settings.maxCallsSaved or 1000,
     minimizeBind = spy_settings.minimizeBind or Enum.KeyCode.RightAlt,
@@ -232,21 +232,17 @@ function spy.get_real_value(value)
 end
 
 function spy.convert_to_code(event, args, ncm)
-    local codestr = spy.get_path(event)..":"..ncm.."("
-    for i,v in next, args do 
-        codestr = codestr..spy.get_real_value(v)..(i==#args and "" or ", ")
-    end
-    codestr = codestr..")"
+    local codestr = spy.get_path(event)..":"..ncm.."(table.unpack("
+    codestr = codestr..spy.get_real_value(args)
+    codestr = codestr.."))"
     return codestr
 end
 
 function spy.convert_to_code_client(event, args, ncm)
-    local codestr = spy.get_path(event)..":"..ncm.."("
-    codestr = codestr..spy.get_real_value(lplr)..(#args > 0 and ",\n" or "")
-    for i,v in next, args do 
-        codestr = codestr..spy.get_real_value(v)..(i==#args and "" or ",\n")
-    end
-    codestr = codestr..")"
+    table.insert(args, 1, lplr)
+    local codestr = spy.get_path(event)..":"..ncm.."(table.unpack("
+    codestr = codestr..spy.get_real_value(args)
+    codestr = codestr.."))"
     return codestr
 end
 
@@ -580,7 +576,7 @@ function spy.hook()
         local args = {...}
         local ncm = getnamecallmethod()
         local callingscript = getcallingscript()
-        if is_hooking == true and (ncm == "InvokeServer" or ncm == "invokeServer" or ncm == "FireServer" or ncm == "fireServer") and (string.find(self.ClassName, "Event") or string.find(self.ClassName, "Function")) and self~=spy.event and not table.find(spy.ignored, self) and (not table.find(spy.blacklistedNames, self.Name)) then 
+        if is_hooking == true and (ncm:lower() == "invokeserver" or ncm:lower() == "fireserver") and (string.find(self.ClassName, "Event") or string.find(self.ClassName, "Function")) and self~=spy.event and not table.find(spy.ignored, self) and (not table.find(spy.blacklistedNames, self.Name)) then 
             if not checkcaller() and table.find(spy.blocked, self) then return end
             spy.event.Fire(spy.event, self, args, ncm, false)
         end
