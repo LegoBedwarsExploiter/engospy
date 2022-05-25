@@ -37,7 +37,7 @@ shared.engospy = spy
 if getgenv then getgenv().engospy = spy end
 local old_namecall = nil
 local old_index = nil
-local is_hooking = true
+local is_hooking = false
 
 function spy.newInstance(self, classname, properties) 
     local instance = Instance.new(classname)
@@ -572,6 +572,7 @@ function spy.onClientEventFired(event, args, ncm)
 end
 
 function spy.hook()
+    is_hooking = true
     old_namecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local args = {...}
         local ncm = getnamecallmethod()
