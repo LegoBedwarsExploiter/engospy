@@ -35,10 +35,9 @@ local spy = {
 }
 shared.engospy = spy
 if getgenv then getgenv().engospy = spy end
-local mt = getrawmetatable(game)
-setreadonly(mt, false)
-local old_namecall = mt.__namecall
-local old_index = mt.__index
+local old_namecall = nil
+local old_index = nil
+local is_hooking = true
 
 function spy.newInstance(self, classname, properties) 
     local instance = Instance.new(classname)
@@ -577,16 +576,16 @@ function spy.onClientEventFired(event, args, ncm)
 end
 
 function spy.hook()
-    mt.__namecall = newcclosure(function(self, ...) 
+    old_namecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         local args = {...}
         local ncm = getnamecallmethod()
         local callingscript = getcallingscript()
-        if (ncm == "InvokeServer" or ncm == "FireServer") and (self.ClassName:find("Event") or self.ClassName:find("Function")) and self~=spy.event and not table.find(spy.ignored, self) and (not table.find(spy.blacklistedNames, self.Name)) then 
+        if is_hooking == true and (ncm == "InvokeServer" or ncm == "invokeServer" or ncm == "FireServer" or ncm == "fireServer") and (string.find(self.ClassName, "Event") or string.find(self.ClassName, "Function")) and self~=spy.event and not table.find(spy.ignored, self) and (not table.find(spy.blacklistedNames, self.Name)) then 
             if not checkcaller() and table.find(spy.blocked, self) then return end
             spy.event.Fire(spy.event, self, args, ncm, false)
         end
         return old_namecall(self, ...)
-    end)
+    end));
 
     for i,v in next, game:GetDescendants() do 
         local ClassName = v.ClassName
@@ -616,7 +615,7 @@ function spy.hook()
 end
 
 function spy.unhook()
-    mt.__namecall = old_namecall
+    is_hooking = false
     for i,v in next, spy.connections do 
         v:Disconnect()
         spy.connections[i] = nil
