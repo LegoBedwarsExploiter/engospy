@@ -584,6 +584,24 @@ function spy.hook()
         return old_namecall(self, ...)
     end));
 
+    local OldFireServer
+    OldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer,function(self, ...) 
+        if is_hooking and not table.find(spy.ignored, self) then
+           if not checkcaller() and table.find(spy.blocked, self) then return end
+           spy.event.Fire(spy.event, self, args, "FireServer", false)
+        end
+        return OldFireServer(self, ...)
+    end)
+
+    local OldInvokeServer
+    OldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer,function(self, ...) 
+        if is_hooking and not table.find(spy.ignored, self) then
+           if not checkcaller() and table.find(spy.blocked, self) then return end
+           spy.event.Fire(spy.event, self, args, "InvokeServer", false)
+        end
+        return OldInvokeServer(self, ...)
+    end)
+
     for i,v in next, game:GetDescendants() do 
         local ClassName = v.ClassName
         if ClassName == "RemoteEvent" then
