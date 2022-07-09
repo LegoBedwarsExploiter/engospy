@@ -702,4 +702,4 @@ function spy.unhook()
 end
 
 spy.hook()
-print("Started engospy in", tostring(tick()-st).."s")
+--print("Started engospy in", tostring(tick()-st).."s")
