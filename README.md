@@ -13,6 +13,7 @@ local settings = {
    saveOnlyLastCall = true,
    maxTableDepth = 100,
    minimizeBind = Enum.KeyCode.RightAlt,
+   newFunctionMethod = true,
    blacklistedNames = {}
 }
 loadstring(game:HttpGet("https://raw.githubusercontent.com/joeengo/engospy/main/source.lua"))(settings)

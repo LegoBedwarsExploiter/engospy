@@ -8,9 +8,9 @@ local setident = syn and syn.set_thread_identity or setidentity or setthreadcont
 local lplr = service.Players.LocalPlayer
 local mouse = lplr:GetMouse()
 local spy = {
-    VERSION = "v1.00 dev",
-    connections = {},
-    guiconnections = {},
+    VERSION = "v1.01",
+    Connections = {},
+    guiConnections = {},
     instances = {},
     blocked = {},
     ignored = {},
@@ -20,6 +20,7 @@ local spy = {
     maxTableDepth = spy_settings.maxTableDepth or 100,
     maxCallsSaved = spy_settings.maxCallsSaved or 1000,
     minimizeBind = spy_settings.minimizeBind or Enum.KeyCode.RightAlt,
+    newFunctionMethod = spy_settings.newFunctionMethod or true,
     assets = {
         RemoteEvent = "http://www.roblox.com/asset/?id=413369506",
         RemoteFunction = "http://www.roblox.com/asset/?id=413369623"
@@ -52,17 +53,27 @@ spy.createInstance = spy.newInstance
 function spy.Destroy(self) 
     for i,v in next, spy.instances do 
         v:Destroy()
-        spy.connections[i] = nil
+        spy.Connections[i] = nil
     end
-    for i,v in next, spy.guiconnections do 
+    for i,v in next, spy.guiConnections do 
         v:Disconnect()
-        spy.guiconnections[i] = nil
+        spy.guiConnections[i] = nil
     end
     spy.unhook()
     spy = nil
 end
 
-local function toUnicode(string)
+local function has_unicode(str) 
+    local notAllowed = ":()[]{}+_-=\\|`~,.<>/?!@#$%^&*"
+
+    for character in string.gmatch(str, "([%z\1-\127\194-\244][\128-\191]*)") do
+        if notAllowed:find(character) then
+            return true
+        end
+    end
+end
+
+local function to_unicode(string)
     local codepoints = "utf8.char("
     
     for _i, v in utf8.codes(string) do
@@ -70,6 +81,12 @@ local function toUnicode(string)
     end
     
     return codepoints:sub(1, -3) .. ')'
+end
+
+local function format_string(str)
+    local str = str:gsub("\0", "\\0"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\t", "\\t"):gsub("\v", "\\v"):gsub("\b", "\\b"):gsub("\f", "\\f")
+
+    return str
 end
 
 function spy.get_path(instance) -- // Thanks to turtlespy for this code, see https://pastebin.com/raw/BDhSQqUU \\
@@ -96,7 +113,7 @@ function spy.get_path(instance) -- // Thanks to turtlespy for this code, see htt
             if tonumber(name:sub(1, 1)) or (#nonAlphaNum ~= 0 and #noPunct == 0) then
                 head = '["' .. name:gsub('"', '\\"'):gsub('\\', '\\\\') .. '"]'
             elseif #nonAlphaNum ~= 0 and #noPunct > 0 then
-                head = '[' .. toUnicode(name) .. ']'
+                head = '[' .. to_unicode(name) .. ']'
             end
         end
     end
@@ -118,16 +135,29 @@ function spy.table_to_string(t)
     return returnStr.."\n"..(("    "):rep(spy.currentTableDepth)).."}"
 end
 
+function spy.bettergetinfo(func) 
+    local info = debug.getinfo(func)
+    info.func = nil 
+    return info
+end
+
 function spy.get_real_value(value)
     local _t = typeof(value)
     if _t == 'Instance' then
         return spy.get_path(value)
     elseif _t == 'string' then
+        local value = format_string(value)
         return '"'..value..'"'
     elseif _t == 'table' then 
         return spy.table_to_string(value)
     elseif _t == 'function' then
-        return "function "..(debug.getinfo(value).name~="" and debug.getinfo(value).name or "").."() end"
+        if not islclosure((value)) then 
+            return "newcclosure(function() end)"
+        end
+        if spy.newFunctionMethod then
+            return "--[[function -->]] "..spy.table_to_string({upvalues = debug.getupvalues(value), constants = debug.getconstants(value), protos = debug.getprotos(value), info = spy.bettergetinfo(value)})
+        end
+        return "function() end"
     elseif _t == 'UDim2' or _t == 'UDim' or _t == 'Vector3' or _t == 'Vector2' or _t == 'CFrame' or _t == 'Vector2int16' or _t == 'Vector3int16' or _t == 'BrickColor' or _t == 'Color3' then
         local value = _t == 'BrickColor' and "'"..tostring(value).."'" or value
         return _t..".new("..tostring(value)..")"
@@ -232,7 +262,15 @@ function spy.get_real_value(value)
 end
 
 function spy.convert_to_code(event, args, ncm)
-    local codestr = spy.get_path(event)..":"..ncm.."(table.unpack("
+    local path = spy.get_real_value(event)
+    if #args == 0 then 
+        return path..":"..ncm.."()"
+    elseif #args == 1 then
+        return path..":"..ncm.."("..spy.get_real_value(args[1])..")"
+    end
+    
+
+    local codestr = path..":"..ncm.."(table.unpack("
     codestr = codestr..spy.get_real_value(args)
     codestr = codestr.."))"
     return codestr
@@ -240,7 +278,15 @@ end
 
 function spy.convert_to_code_client(event, args, ncm)
     table.insert(args, 1, lplr)
-    local codestr = spy.get_path(event)..":"..ncm.."(table.unpack("
+
+    local path = spy.get_real_value(event)
+    if #args == 1 then 
+        return path..":"..ncm.."("..spy.get_real_value(args[1])..")"
+    elseif #args == 2 then
+        return path..":"..ncm.."(".. spy.get_real_value(args[1]) .. ", " ..spy.get_real_value(args[2])..")"
+    end
+
+    local codestr = path..":"..ncm.."(table.unpack("
     codestr = codestr..spy.get_real_value(args)
     codestr = codestr.."))"
     return codestr
@@ -302,7 +348,7 @@ function spy.createUILibrary()
             end
         end
     end
-    spy.guiconnections[#spy.guiconnections+1] = service.UserInputService.InputBegan:Connect(function(input)
+    spy.guiConnections[#spy.guiConnections+1] = service.UserInputService.InputBegan:Connect(function(input)
         if input.KeyCode == spy.minimizeBind then 
             spy.Minimize()
         end
@@ -324,7 +370,7 @@ function spy.createUILibrary()
     api.IconImage = spy:createInstance("ImageLabel", {Name = "ELogo", Parent = api.Icon, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1.000, Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.699999988, 0, 0.699999988, 0), Image = "rbxassetid://9710071559"})
     api.UICorner4 = spy:createInstance("UICorner", {Parent = api.Icon, CornerRadius = UDim.new(0, 2147483647)})
     
-    api.Icon.MouseButton1Click:connect(spy.Minimize)
+    api.Icon.MouseButton1Click:Connect(spy.Minimize)
     function api.createCallContainer(name) 
         local callapi = {Name = name, FullName = name.."CallContainer", Type = "CallContainer", Calls = {}}
         callapi.Button = spy:createInstance("TextButton", {Name = name, Parent = api.ButtonContainer,Size = UDim2.new(0, 124, 0, 25), BackgroundTransparency = 1, BackgroundColor3 = Color3.fromRGB(38, 38, 38), BorderSizePixel = 0, Font = Enum.Font.Gotham, Text = name, TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14})
@@ -332,7 +378,7 @@ function spy.createUILibrary()
         callapi.Container = spy:createInstance("ScrollingFrame", {Name = callapi.FullName, Parent = callapi.Background,ClipsDescendants = true, Active = true, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(24, 24, 24), BackgroundTransparency = 1.000, BorderSizePixel = 0, Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.980000019, 0, 0.963999987, 0), ScrollBarThickness = 0, VerticalScrollBarPosition = Enum.VerticalScrollBarPosition.Left})
         callapi.UIListLayout = spy:createInstance("UIListLayout", {Parent = callapi.Container, HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 3)})
         callapi.UICorner = spy:createInstance("UICorner", {Parent = callapi.Background})
-        spy.guiconnections[#spy.guiconnections+1] = callapi.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):connect(function()
+        spy.guiConnections[#spy.guiConnections+1] = callapi.UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
             callapi.Container.CanvasSize = UDim2.new(0,0,0,callapi.UIListLayout.AbsoluteContentSize.Y)
         end)
         function callapi.open()
@@ -356,7 +402,7 @@ function spy.createUILibrary()
                 end
             end
         end
-        callapi.Button.MouseButton1Click:connect(callapi.open)
+        callapi.Button.MouseButton1Click:Connect(callapi.open)
 
         function callapi.createCall(remote, code) 
             local callapi2 = {Remote = remote, Calls = {}}
@@ -368,6 +414,7 @@ function spy.createUILibrary()
             end
 
             function callapi2.updateCall(newCode) 
+                callapi2.Calls[#callapi2.Calls+1] = {Code = newCode}
                 local text = callapi2.CallAmount.Text:gsub("x", "")
                 callapi2.CallAmount.Text = "x"..tostring(tonumber(text) + 1)
                 if #callapi2.Calls >= spy.maxCallsSaved then
@@ -380,7 +427,7 @@ function spy.createUILibrary()
                 local callapi3 = {Code = newCode}
                 if spy.saveCalls or spy.saveOnlyLastCall then
                     if spy.saveOnlyLastCall and #callapi2.Calls > 0 then 
-                        callapi2.Calls[1].CodeLabel.Text = newCode:gsub("\n","")
+                        callapi2.Calls[1].CodeLabel.Text = newCode
                         return
                     end
                     callapi3.Call = spy:createInstance("TextButton", {Name = "RemoteCall", Parent = callapi2.ChildrenContainer, AutoButtonColor = false,AnchorPoint = Vector2.new(0.5, 0), BackgroundColor3 = Color3.fromRGB(38, 38, 38), Position = UDim2.new(-0.00993345678, 0, -0.0887730792, 0), Size = UDim2.new(0.995000005, 0, 0, 36)})
@@ -395,15 +442,15 @@ function spy.createUILibrary()
                     callapi3.CodeLabel = spy:createInstance("TextLabel", {Name = "CodeLabel", Parent = callapi3.CodeContainer,AutomaticSize = Enum.AutomaticSize.XY, BackgroundTransparency = 1.000, Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(0, 771, 0, 25), Font = Enum.Font.Gotham, Text = newCode:gsub("\n",""), TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 12.000, TextXAlignment = Enum.TextXAlignment.Left})
                     --callapi3.CallNum.Text = "#"..tostring(#callapi2.Calls+1)
                     callapi3.CodeContainer.CanvasSize = UDim2.new(0,callapi3.CodeLabel.AbsoluteSize.X+18,0,0)
-                    spy.guiconnections[#spy.guiconnections+1] = callapi3.CodeLabel:GetPropertyChangedSignal("AbsoluteSize"):connect(function() 
+                    spy.guiConnections[#spy.guiConnections+1] = callapi3.CodeLabel:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() 
                         callapi3.CodeContainer.CanvasSize = UDim2.new(0,callapi3.CodeLabel.AbsoluteSize.X+18,0,0)
                     end)
 
-                    --spy.guiconnections[#spy.guiconnections+1] = callapi3.CodeContainer.MouseEnter:connect(function() 
+                    --spy.guiConnections[#spy.guiConnections+1] = callapi3.CodeContainer.MouseEnter:Connect(function() 
                     --    callapi.Container.ScrollingEnabled = false
                     --end)
 
-                    --spy.guiconnections[#spy.guiconnections+1] = callapi3.CodeContainer.MouseLeave:connect(function() 
+                    --spy.guiConnections[#spy.guiConnections+1] = callapi3.CodeContainer.MouseLeave:Connect(function() 
                     --    callapi.Container.ScrollingEnabled = true
                     --end)
 
@@ -414,7 +461,7 @@ function spy.createUILibrary()
                                     v2.OptionsContainer.Visible = false
                                 end
                                 for i3,v3 in next, v2.Calls do 
-                                    if v3.OptionsContainer ~= callapi3.OptionsContainer then
+                                    if v3.OptionsContainer and (v3.OptionsContainer ~= callapi3.OptionsContainer) then
                                         v3.OptionsContainer.Visible = false
                                     end
                                 end
@@ -431,9 +478,9 @@ function spy.createUILibrary()
                         setclipboardfunc(newCode)
                     end
 
-                    callapi3.CopyButton.MouseButton1Click:connect(callapi3.copy)
-                    callapi3.Call.MouseButton2Click:connect(callapi3.openSettings)
-                    callapi3.SettingsButton.MouseButton1Click:connect(callapi3.openSettings)
+                    callapi3.CopyButton.MouseButton1Click:Connect(callapi3.copy)
+                    callapi3.Call.MouseButton2Click:Connect(callapi3.openSettings)
+                    callapi3.SettingsButton.MouseButton1Click:Connect(callapi3.openSettings)
                 end
                 callapi2.Calls[#callapi2.Calls + 1] = callapi3
                 return callapi3
@@ -446,15 +493,18 @@ function spy.createUILibrary()
             callapi2.SettingsButton = spy:createInstance("ImageButton", {Name = "SettingsButton", Parent = callapi2.Call,ClipsDescendants = true, AnchorPoint = Vector2.new(0, 0.5), BackgroundTransparency = 1.000, Position = UDim2.new(0.939999998, 0, 0.5, 0), Size = UDim2.new(0, 26, 0, 26), Image = "rbxassetid://2717396089", ImageColor3 = Color3.fromRGB(122, 122, 122), ScaleType = Enum.ScaleType.Fit})
             callapi2.CallAmount = spy:createInstance("TextLabel", {Name = "CallAmount", Parent = callapi2.Call, AnchorPoint = Vector2.new(0, 0.5), BackgroundTransparency = 1.000, Position = UDim2.new(0.768197536, 0, 0.500000238, 0), Size = UDim2.new(0, 78, 0, 24), Font = Enum.Font.Gotham, Text = "x1", TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Right})
             callapi2.OptionsContainer = spy:createInstance("Frame", {Name = "OptionsContainer", Parent = spy.MainGui,ZIndex = 10, BackgroundColor3 = Color3.fromRGB(23, 23, 23), BorderSizePixel = 1, BorderColor3 = Color3.fromRGB(38,38,38), Position = UDim2.fromOffset(7,15), Size = UDim2.new(0, 113, 0, 111), Visible = false})
-            callapi2.OptionsButtonContainer = spy:createInstance("Frame", {Name = "OptionsButtonContainer", Parent = callapi2.OptionsContainer,ZIndex = 10, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1.000, Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.959999979, 0, 0.952903688, 0)})
+            callapi2.OptionsButtonContainer = spy:createInstance("Frame", {Name = "OptionsButtonContainer", Parent = callapi2.OptionsContainer,ZIndex = 10, AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1.000, Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.959999979, 0, 0, 0)})
             callapi2.OptionsUIListLayout = spy:createInstance("UIListLayout", {Parent = callapi2.OptionsButtonContainer, SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center})
             callapi2.CopyButton = spy:createInstance("TextButton", {Name = "CopyLast", Parent = callapi2.OptionsButtonContainer,ZIndex = 10, BackgroundColor3 = Color3.fromRGB(23, 23, 23), BorderSizePixel = 0, Position = UDim2.new(0.0967741907, 0, 0, 0), Size = UDim2.new(1, 0, 0, 25), Font = Enum.Font.Gotham, Text = "Copy last call", TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14, TextWrapped = true})
             callapi2.Copy10Button = spy:createInstance("TextButton", {Name = "Copy10", Parent = callapi2.OptionsButtonContainer,ZIndex = 10, BackgroundColor3 = Color3.fromRGB(23, 23, 23), BorderSizePixel = 0, Position = UDim2.new(0.0967741907, 0, 0, 0), Size = UDim2.new(1, 0, 0, 25), Font = Enum.Font.Gotham, Text = "Copy last x10", TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14, TextWrapped = true})
+            callapi2.CopyAllButton = spy:createInstance("TextButton", {Name = "Copy10", Parent = callapi2.OptionsButtonContainer,ZIndex = 10, BackgroundColor3 = Color3.fromRGB(23, 23, 23), BorderSizePixel = 0, Position = UDim2.new(0.0967741907, 0, 0, 0), Size = UDim2.new(1, 0, 0, 25), Font = Enum.Font.Gotham, Text = "Copy all", TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14, TextWrapped = true})
             callapi2.IgnoreButton = spy:createInstance("TextButton", {Name = "Ignore", Parent = callapi2.OptionsButtonContainer,ZIndex = 10, BackgroundColor3 = Color3.fromRGB(23, 23, 23), BorderSizePixel = 0, Position = UDim2.new(0.0967741907, 0, 0, 0), Size = UDim2.new(1, 0, 0, 25), Font = Enum.Font.Gotham, Text = "Ignore", TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14, TextWrapped = true})
             callapi2.BlockButton = spy:createInstance("TextButton", {Name = "Block", Parent = callapi2.OptionsButtonContainer,ZIndex = 10, BackgroundColor3 = Color3.fromRGB(23, 23, 23), BorderSizePixel = 0, Position = UDim2.new(0.0967741907, 0, 0, 0), Size = UDim2.new(1, 0, 0, 25), Font = Enum.Font.Gotham, Text = "Block", TextColor3 = Color3.fromRGB(255, 255, 255), TextSize = 14, TextWrapped = true})
             callapi2.UICorner2 = spy:createInstance("UICorner", {Parent = callapi2.OptionsButtonContainer})
             callapi2.ChildrenContainer = spy:createInstance("Frame", {Name = "CallChildren", Parent = callapi.Container,AutomaticSize = Enum.AutomaticSize.Y, Visible=false, AnchorPoint = Vector2.new(0.5, 0), BackgroundColor3 = Color3.fromRGB(38, 38, 38), BackgroundTransparency = 1.000,Position = UDim2.new(0.00436409656, 0, 0, 0),Size = UDim2.new(1, 0, -0.00600000005, 36)})
             callapi2.ChildrenUIListLayout = spy:createInstance("UIListLayout", {Parent = callapi2.ChildrenContainer, HorizontalAlignment = Enum.HorizontalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 3)})
+
+            callapi2.OptionsButtonContainer.Size = UDim2.new(0.959999979, 0, 0, callapi2.OptionsUIListLayout.AbsoluteContentSize.Y)
 
             callapi2.addNewCall(code)
 
@@ -492,8 +542,19 @@ function spy.createUILibrary()
                     local str = ""
                     for i,v in next, callapi2.Calls do 
                         if i >= #callapi2.Calls-10 then 
-                            str= str..v.Code.."\n"
+                            str= str.."\n--Call #"..tostring(i)..":\n"..v.Code.."\n"
                         end
+                    end
+                    setclipboardfunc(str)
+                end
+            end
+
+            function callapi2.copyAll() 
+                callapi2.OptionsContainer.Visible = false 
+                if setclipboardfunc then 
+                    local str = ""
+                    for i,v in next, callapi2.Calls do 
+                        str= str.."\n--Call #"..tostring(i)..":\n"..v.Code.."\n"
                     end
                     setclipboardfunc(str)
                 end
@@ -525,7 +586,7 @@ function spy.createUILibrary()
                 if not spy.saveCalls and not spy.saveOnlyLastCall then return end
                 if callapi2.ChildrenContainer.Visible then 
                     for i,v in next, callapi2.Calls do 
-                        if v.OptionsContainer.Visible then 
+                        if v.OptionsContainer and v.OptionsContainer.Visible then 
                             v.OptionsContainer.Visible = false
                         end
                     end
@@ -533,13 +594,14 @@ function spy.createUILibrary()
                 callapi2.ChildrenContainer.Visible = not callapi2.ChildrenContainer.Visible
             end
 
-            callapi2.Call.MouseButton2Click:connect(callapi2.openSettings)
-            callapi2.SettingsButton.MouseButton1Click:connect(callapi2.openSettings)
-            callapi2.CopyButton.MouseButton1Click:connect(callapi2.copyLast)
-            callapi2.Copy10Button.MouseButton1Click:connect(callapi2.copyLast10)
-            callapi2.BlockButton.MouseButton1Click:connect(callapi2.Block)
-            callapi2.IgnoreButton.MouseButton1Click:connect(callapi2.Ignore)
-            callapi2.Call.MouseButton1Click:connect(callapi2.Expand)
+            callapi2.Call.MouseButton2Click:Connect(callapi2.openSettings)
+            callapi2.SettingsButton.MouseButton1Click:Connect(callapi2.openSettings)
+            callapi2.CopyButton.MouseButton1Click:Connect(callapi2.copyLast)
+            callapi2.Copy10Button.MouseButton1Click:Connect(callapi2.copyLast10)
+            callapi2.CopyAllButton.MouseButton1Click:Connect(callapi2.copyAll)
+            callapi2.BlockButton.MouseButton1Click:Connect(callapi2.Block)
+            callapi2.IgnoreButton.MouseButton1Click:Connect(callapi2.Ignore)
+            callapi2.Call.MouseButton1Click:Connect(callapi2.Expand)
 
             callapi.Calls[remote.Name] = callapi2
             return callapi2
@@ -548,8 +610,8 @@ function spy.createUILibrary()
         return callapi
     end
 
-    api.Close.MouseButton1Click:connect(spy.Destroy)
-    api.Minimize.MouseButton1Click:connect(spy.Minimize)
+    api.Close.MouseButton1Click:Connect(spy.Destroy)
+    api.Minimize.MouseButton1Click:Connect(spy.Minimize)
     return api
 end
 spy.UILibrary = spy:createUILibrary()
@@ -577,7 +639,7 @@ function spy.hook()
         local args = {...}
         local ncm = getnamecallmethod()
         local callingscript = getcallingscript()
-        if is_hooking == true and (ncm:lower() == "invokeserver" or ncm:lower() == "fireserver") and (string.find(self.ClassName, "Event") or string.find(self.ClassName, "Function")) and self~=spy.event and not table.find(spy.ignored, self) and (not table.find(spy.blacklistedNames, self.Name)) then 
+        if is_hooking == true and (string.lower(ncm) == "invokeserver" or string.lower(ncm) == "fireserver") and (string.find(self.ClassName, "Event") or string.find(self.ClassName, "Function")) and self~=spy.event and not table.find(spy.ignored, self) and (not table.find(spy.blacklistedNames, self.Name)) then 
             if not checkcaller() and table.find(spy.blocked, self) then return end
             spy.event.Fire(spy.event, self, args, ncm, false)
         end
@@ -586,6 +648,7 @@ function spy.hook()
 
     local OldFireServer
     OldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer,function(self, ...) 
+        local args = {...}
         if is_hooking and not table.find(spy.ignored, self) then
            if not checkcaller() and table.find(spy.blocked, self) then return end
            spy.event.Fire(spy.event, self, args, "FireServer", false)
@@ -595,6 +658,7 @@ function spy.hook()
 
     local OldInvokeServer
     OldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer,function(self, ...) 
+        local args = {...}
         if is_hooking and not table.find(spy.ignored, self) then
            if not checkcaller() and table.find(spy.blocked, self) then return end
            spy.event.Fire(spy.event, self, args, "InvokeServer", false)
@@ -605,22 +669,22 @@ function spy.hook()
     for i,v in next, game:GetDescendants() do 
         local ClassName = v.ClassName
         if ClassName == "RemoteEvent" then
-            spy.connections[#spy.connections+1] = v.OnClientEvent:connect(function(...)
+            spy.Connections[#spy.Connections+1] = v.OnClientEvent:Connect(function(...)
                 spy.event:Fire(v, {...}, "FireClient", true)
             end)
         end
     end
 
-    spy.connections[#spy.connections+1]= game.DescendantAdded:connect(function(v) 
+    spy.Connections[#spy.Connections+1]= game.DescendantAdded:Connect(function(v) 
         local ClassName = v.ClassName
         if ClassName == "RemoteEvent" then
-            spy.connections[#spy.connections+1] = v.OnClientEvent:connect(function(...)
+            spy.Connections[#spy.Connections+1] = v.OnClientEvent:Connect(function(...)
                 spy.event:Fire(v, {...}, "FireClient", true)
             end)
         end
     end)
 
-    spy.event.Event:connect(function(event, args, ncm, isClient) 
+    spy.event.Event:Connect(function(event, args, ncm, isClient) 
         if isClient then 
             spy.onClientEventFired(event, args, ncm)
             return
@@ -631,9 +695,9 @@ end
 
 function spy.unhook()
     is_hooking = false
-    for i,v in next, spy.connections do 
+    for i,v in next, spy.Connections do 
         v:Disconnect()
-        spy.connections[i] = nil
+        spy.Connections[i] = nil
     end
 end
 
