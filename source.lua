@@ -5,6 +5,7 @@ local service = setmetatable({}, {__index = function(t,k) return game.GetService
 local decompile = decompile or disassemble or function() return "-- Decompiler not found." end
 local setclipboardfunc = function(message) if setclipboard then setclipboard("-- This was generated from engospy RemoteSpy tool.\n"..tostring(message)) else print("Couldn't setclipboard.") end end
 local setident = syn and syn.set_thread_identity or setidentity or setthreadcontext
+local isV3 = syn and syn.toast_notification ~= nil
 local lplr = service.Players.LocalPlayer
 local mouse = lplr:GetMouse()
 local spy = {
@@ -620,6 +621,9 @@ for i,v in next, spy.namecallmethods do
     tabs[i] = spy.UILibrary.createCallContainer(v)
 end
 tabs.RemoteEventClient = spy.UILibrary.createCallContainer("FireClient")
+if isV3 then
+    tabs.RemoteFunctionClient = spy.UILibrary.createCallContainer("InvokeClient")
+end
 
 if not wasLoaded then spy.Minimize() end
 
@@ -680,6 +684,26 @@ function spy.hook()
         if ClassName == "RemoteEvent" then
             spy.Connections[#spy.Connections+1] = v.OnClientEvent:Connect(function(...)
                 spy.event:Fire(v, {...}, "FireClient", true)
+            end)
+        end
+        if isV3 and ClassName == "RemoteFunction" then 
+            local func = getcallbackmember(v, "OnClientInvoke")
+            local old;
+            old = hookfunction(func, newcclosure(function(...)
+                if is_hooking then
+                    spy.event:Fire(v, {...}, "InvokeClient", true)
+                end
+                return old(...)
+            end))
+            v:GetPropertyChangedSignal("OnClientInvoke"):Connect(function()
+                local func = getcallbackmember(v, "OnClientInvoke")
+                local old;
+                old = hookfunction(func, newcclosure(function(...)
+                    if is_hooking then
+                        spy.event:Fire(v, {...}, "InvokeClient", true)
+                    end
+                    return old(...)
+                end))
             end)
         end
     end)
