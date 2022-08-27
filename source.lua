@@ -9,7 +9,7 @@ local isV3 = syn and syn.toast_notification ~= nil
 local lplr = service.Players.LocalPlayer
 local mouse = lplr:GetMouse()
 local spy = {
-    VERSION = "v1.01",
+    VERSION = "v1.02",
     Connections = {},
     guiConnections = {},
     instances = {},
@@ -415,6 +415,7 @@ function spy.createUILibrary()
             end
 
             function callapi2.updateCall(newCode) 
+                local newCode = newCode:gsub("\n", "")
                 callapi2.Calls[#callapi2.Calls+1] = {Code = newCode}
                 local text = callapi2.CallAmount.Text:gsub("x", "")
                 callapi2.CallAmount.Text = "x"..tostring(tonumber(text) + 1)
