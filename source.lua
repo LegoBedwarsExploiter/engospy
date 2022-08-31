@@ -678,6 +678,26 @@ function spy.hook()
                 spy.event:Fire(v, {...}, "FireClient", true)
             end)
         end
+	if isV3 and ClassName == "RemoteFunction" then 
+            local func = getcallbackmember(v, "OnClientInvoke")
+            local old;
+            old = hookfunction(func, newcclosure(function(...)
+                if is_hooking then
+                    spy.event:Fire(v, {...}, "InvokeClient", true)
+                end
+                return old(...)
+            end))
+            v:GetPropertyChangedSignal("OnClientInvoke"):Connect(function()
+                local func = getcallbackmember(v, "OnClientInvoke")
+                local old;
+                old = hookfunction(func, newcclosure(function(...)
+                    if is_hooking then
+                        spy.event:Fire(v, {...}, "InvokeClient", true)
+                    end
+                    return old(...)
+                end))
+            end)
+        end
     end
 
     spy.Connections[#spy.Connections+1]= game.DescendantAdded:Connect(function(v) 
