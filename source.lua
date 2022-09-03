@@ -678,8 +678,9 @@ function spy.hook()
                 spy.event:Fire(v, {...}, "FireClient", true)
             end)
         end
-	if isV3 and ClassName == "RemoteFunction" then 
+	if isV3 and ClassName == "RemoteFunction" and false then 
             local func = getcallbackmember(v, "OnClientInvoke")
+	
             local old;
             old = hookfunction(func, newcclosure(function(...)
                 if is_hooking then
